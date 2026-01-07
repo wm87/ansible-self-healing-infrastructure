@@ -2,7 +2,7 @@
 
 set -e
 
-cat >>"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 # ---------------------
 # Apache Exporter
 # ---------------------

@@ -7,10 +7,10 @@ set -e
 # ---------------------
 
 # Basisverzeichnisse
-PROVISIONING_DIR="$PROJECT/roles/grafana/templates/provisioning/dashboards"
-TASKS_DIR="$PROJECT/roles/grafana/tasks"
-VARS_DIR="$PROJECT/roles/grafana/vars"
-HANDLERS_DIR="$PROJECT/roles/grafana/handlers"
+PROVISIONING_DIR="$PROJECT_MT/roles/grafana/templates/provisioning/dashboards"
+TASKS_DIR="$PROJECT_MT/roles/grafana/tasks"
+VARS_DIR="$PROJECT_MT/roles/grafana/vars"
+HANDLERS_DIR="$PROJECT_MT/roles/grafana/handlers"
 
 mkdir -p "$PROVISIONING_DIR" "$TASKS_DIR" "$VARS_DIR" "$HANDLERS_DIR"
 

@@ -1,0 +1,12 @@
+apache2:
+    failure: 0
+    success: 33
+docker:
+    failure: 0
+    success: 20
+mysql:
+    failure: 0
+    success: 28
+postgresql:
+    failure: 0
+    success: 25

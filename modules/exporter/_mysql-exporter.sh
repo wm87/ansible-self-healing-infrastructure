@@ -2,13 +2,13 @@
 
 set -e
 
-cat >>"$PROJECT/roles/prometheus/vars/main.yml" <<EOL
+cat >>"$PROJECT_MT/roles/prometheus/vars/main.yml" <<EOL
 # MySQL Defaults
 mysql_root_password: "hugo"
 mysql_exporter_password: "changeme"
 EOL
 
-cat >>"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 # ---------------------
 # MySQL Exporter
 # ---------------------

@@ -5,10 +5,10 @@ set -e
 # -------------------------------
 # Basisvariablen
 # -------------------------------
-PROJECT="${PROJECT:-/tmp/self-healing}"
+PROJECT_MT="${PROJECT_MT:-/tmp/self-healing}"
 LOKI_VERSION="3.6.3"
 
-ROLES_DIR="$PROJECT/roles/loki"
+ROLES_DIR="$PROJECT_MT/roles/loki"
 TASKS_DIR="$ROLES_DIR/tasks"
 VARS_DIR="$ROLES_DIR/vars"
 HANDLERS_DIR="$ROLES_DIR/handlers"

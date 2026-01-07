@@ -26,11 +26,6 @@ source modules/_file_hierarchy.sh
 source modules/_core_files.sh
 
 # ---------------------
-# Hardening Rolle
-# ---------------------
-source modules/_hardening.sh
-
-# ---------------------
 # Prometheus Rolle
 # ---------------------
 source modules/_prometheus.sh

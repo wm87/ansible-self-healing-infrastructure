@@ -2,7 +2,7 @@
 
 set -e
 
-cat >>"$PROJECT/roles/prometheus/files/alert_rules.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/files/alert_rules.yml" <<'EOL'
 
 # =====================
 # MySQL Alerts

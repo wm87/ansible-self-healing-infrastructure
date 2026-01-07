@@ -2,7 +2,7 @@
 
 set -e
 
-export PROJECT="$(pwd)/monitoring"
+export PROJECT_MT="$(pwd)/monitoring"
 
 #/etc/postgresql/18/main/pg_hba.conf
 # Allow postgres_exporter user

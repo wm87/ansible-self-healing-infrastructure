@@ -3,7 +3,7 @@
 # ---------------------
 # Basisdateien
 # ---------------------
-cat >"$PROJECT/inventory.yml" <<EOL
+cat >"$PROJECT_MT/inventory.yml" <<EOL
 all:
   hosts:
     localhost:
@@ -11,9 +11,9 @@ all:
 EOL
 
 # Ansible-Konfigurationsdatei erzeugen
-cat >"$PROJECT/ansible.cfg" <<EOL
+cat >"$PROJECT_MT/ansible.cfg" <<EOL
 [defaults]
-inventory = $PROJECT/inventory.yml
+inventory = $PROJECT_MT/inventory.yml
 host_key_checking = False
 forks = 10
 remote_user = $(whoami)
@@ -22,14 +22,13 @@ ansible_python_interpreter = /usr/bin/python3
 vault_password_file = ~/.ansible/vault_pass.txt
 
 # Optional: Rollen-Pfad
-roles_path = $PROJECT/roles
+roles_path = $PROJECT_MT/roles
 EOL
 
-cat >"$PROJECT/site.yml" <<EOL
+cat >"$PROJECT_MT/site.yml" <<EOL
 - hosts: all
   become: yes
   roles:
-    - role: hardening
     - role: prometheus
     - role: grafana
     - role: loki

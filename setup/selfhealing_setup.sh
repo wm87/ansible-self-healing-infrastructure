@@ -2,16 +2,15 @@
 set -e
 
 # Basisverzeichnisse
-BASE_DIR=${PWD}/selfhealing
-
-mkdir -p $BASE_DIR/roles/services/{tasks,defaults,vars}
-mkdir -p $BASE_DIR/roles/selfheal_preflight/{tasks,defaults,vars,templates}
-mkdir -p $BASE_DIR/roles/selfheal_state_machine/{tasks,states,defaults}
-mkdir -p $BASE_DIR/playbooks
-mkdir -p $BASE_DIR/inventory
+mkdir -p $PROJECT_SH/roles/hardening/{tasks,handlers,templates}
+mkdir -p $PROJECT_SH/roles/services/{tasks,defaults,vars}
+mkdir -p $PROJECT_SH/roles/selfheal_preflight/{tasks,defaults,vars,templates}
+mkdir -p $PROJECT_SH/roles/selfheal_state_machine/{tasks,states,defaults}
+mkdir -p $PROJECT_SH/playbooks
+mkdir -p $PROJECT_SH/inventory
 
 # ansible.cfg
-cat >"$BASE_DIR/ansible.cfg" <<EOL
+cat >"$PROJECT_SH/ansible.cfg" <<EOL
 [defaults]
 inventory = inventory/hosts.ini
 roles_path = roles
@@ -20,14 +19,17 @@ retry_files_enabled = False
 result_format = yaml
 EOL
 
+# hardening role
+source modules/_hardening.sh
+
 # Preflight vars
-cat >"$BASE_DIR/roles/selfheal_preflight/vars/main.yml" <<EOL
+cat >"$PROJECT_SH/roles/selfheal_preflight/vars/main.yml" <<EOL
 pushgateway_enabled: true
 pushgateway_url: "http://localhost:9091"
 EOL
 
 # Preflight defaults
-cat >"$BASE_DIR/roles/selfheal_preflight/defaults/main.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_preflight/defaults/main.yml" <<'EOL'
 preflight_min_free_ram_pct: 10
 preflight_max_swap_pct: 80
 preflight_max_cpu_load_factor: 2
@@ -51,7 +53,7 @@ selfheal_service_profiles:
 EOL
 
 # State Machine defaults
-cat >"$BASE_DIR/roles/selfheal_state_machine/defaults/main.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/defaults/main.yml" <<'EOL'
 selfheal_services:
   - name: apache2
     initial_state: restart
@@ -114,12 +116,12 @@ selfheal_state_map:
 EOL
 
 # Preflight tasks
-cat >"$BASE_DIR/roles/selfheal_preflight/tasks/main.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_preflight/tasks/main.yml" <<'EOL'
 - import_tasks: checks.yml
 - import_tasks: policy.yml
 EOL
 
-cat >"$BASE_DIR/roles/selfheal_preflight/tasks/checks.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_preflight/tasks/checks.yml" <<'EOL'
 - name: Gather facts
   setup:
 
@@ -160,7 +162,7 @@ cat >"$BASE_DIR/roles/selfheal_preflight/tasks/checks.yml" <<'EOL'
   when: "'default' not in routes.stdout"
 EOL
 
-cat >"$BASE_DIR/roles/selfheal_preflight/tasks/policy.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_preflight/tasks/policy.yml" <<'EOL'
 - name: Abort if preflight failed
   meta: end_play
   when: preflight_errors | length > 0 and preflight_fail_fast
@@ -168,17 +170,17 @@ EOL
 
 # State Machine tasks
 for file in main.yml service_loop.yml load_state.yml run_state.yml cooldown.yml; do
-	touch "$BASE_DIR/roles/selfheal_state_machine/tasks/$file"
+	touch "$PROJECT_SH/roles/selfheal_state_machine/tasks/$file"
 done
 
 # main.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/main.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/main.yml" <<'EOL'
 - import_tasks: cooldown.yml
 - import_tasks: service_loop.yml
 EOL
 
 # cooldown.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/cooldown.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/cooldown.yml" <<'EOL'
 - name: Ensure state directory exists
   file:
     path: "{{ selfheal_state_dir }}"
@@ -186,34 +188,99 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/cooldown.yml" <<'EOL'
     mode: '0755'
 EOL
 
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/push_success.yml" <<'EOL'
-- name: DEBUG service_name scope
+# push_success.yml
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/push_success.yml" <<'EOL'
+- name: DEBUG service_ctx.name
   debug:
-    var: service_name
+    var: service_ctx.name
 
 - name: Push repair success metric
   ansible.builtin.uri:
-    url: "{{ selfheal_pushgateway }}/metrics/job/selfheal/host/{{ inventory_hostname }}/service/{{ service_name }}"
+    url: "{{ selfheal_pushgateway }}/metrics/job/selfheal/host/{{ inventory_hostname }}/service/{{ service_ctx.name }}"
     method: POST
     body: |
-      selfheal_repair_success{host="{{ inventory_hostname }}",service="{{ service_name }}"} 1
+      selfheal_repair_success{host="{{ inventory_hostname }}",service="{{ service_ctx.name }}"} 1
     status_code: [200, 202]
   delegate_to: localhost
   when:
-    - selfheal_push_metrics | default(true)
+    - service_ctx.finalized | default(false)
+EOL
+
+# push_metrics.yml
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/push_metrics.yml" <<'EOL'
+- name: Load local counters
+  ansible.builtin.include_vars:
+    file: /bigdata/tmp/ansible-self-healing-infrastructure/setup/counters.yml
+    name: counters
+
+- name: Increment counters
+  set_fact:
+    counters: >-
+      {{
+        counters | combine({
+          service_ctx.name: {
+            'success': counters[service_ctx.name].success + (1 if service_ctx.success else 0),
+            'failure': counters[service_ctx.name].failure + (0 if service_ctx.success else 1)
+          }
+        }, recursive=True)
+      }}
+
+- name: Save counters back to file
+  ansible.builtin.copy:
+    dest: /bigdata/tmp/ansible-self-healing-infrastructure/setup/counters.yml
+    content: "{{ counters | to_nice_yaml }}"
+    mode: '0644'
+
+- name: Push counters to Pushgateway
+  uri:
+    url: "{{ pushgateway_url }}/metrics/job/selfheal/service/{{ service_ctx.name }}/instance/{{ inventory_hostname }}"
+    method: POST
+    body: |
+      # HELP selfheal_service_success_total Total number of successful self-healing actions per service
+      # TYPE selfheal_service_success_total counter
+      selfheal_service_success_total{host="{{ inventory_hostname }}",service="{{ service_ctx.name }}"} {{ counters[service_ctx.name].success }}
+
+      # HELP selfheal_service_failure_total Total number of failed self-healing actions per service
+      # TYPE selfheal_service_failure_total counter
+      selfheal_service_failure_total{host="{{ inventory_hostname }}",service="{{ service_ctx.name }}"} {{ counters[service_ctx.name].failure }}
+    headers:
+      Content-Type: text/plain
+    status_code: [200,202]
+  delegate_to: localhost
+  when:
+    - service_ctx is defined
+    - service_ctx.name is defined
+
+# ------------------------------
+# Push historical event
+# ------------------------------
+- name: Push last repair state to Pushgateway
+  uri:
+    url: "{{ selfheal_pushgateway }}/metrics/job/selfheal/service/{{ service_ctx.name }}/instance/{{ inventory_hostname }}"
+    method: POST
+    body: |
+      # HELP selfheal_service_last_state Last executed self-heal state per service
+      # TYPE selfheal_service_last_state gauge
+      selfheal_service_last_state{host="{{ inventory_hostname }}",service="{{ service_ctx.name }}",state="{{ service_ctx.history[-1].state | default('unknown') }}"} 1
+    headers:
+      Content-Type: text/plain
+    status_code: [200,202]
+  delegate_to: localhost
+  when:
+    - service_ctx.finalized | default(false)
+
 
 EOL
 
 # service_loop.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/service_loop.yml" <<'EOL'
-# service_loop.yml
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/service_loop.yml" <<'EOL'
 - name: Filter target services
   set_fact:
     target_services_filtered: >
       {{ selfheal_services if selfheal_service == 'all'
          else selfheal_services | selectattr('name','equalto', selfheal_service) | list }}
 
-- name: Loop over filtered services
+- name: Run state machine per service
   include_tasks: load_state.yml
   loop: "{{ target_services_filtered }}"
   loop_control:
@@ -221,185 +288,137 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/service_loop.yml" <<'EOL'
 EOL
 
 # load_state.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/load_state.yml" <<'EOL'
-# load_state.yml
-- name: Set service and initial state
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/load_state.yml" <<'EOL'
+# ----------------------------
+# Init context
+# ----------------------------
+- name: Initialize service context
   set_fact:
-    service_name: "{{ target_service_item.name }}"
-    current_state: "{{ target_service_item.initial_state }}"
-    service_success: false
-    service_finalized: false
-    service_states: []
+    service_ctx:
+      name: "{{ target_service_item.name }}"
+      current_state: "{{ target_service_item.initial_state }}"
+      success: false
+      finalized: false
+      history: []
+      severity: "{{ target_service_item.severity | default('unknown') }}"
+      started_at: "{{ ansible_date_time.epoch | int }}"
 
-- import_tasks: run_state.yml
-EOL
+# ----------------------------
+# Iterative State Machine
+# ----------------------------
+- name: Run state machine (iterative)
+  include_tasks: step.yml
+  loop: "{{ range(0, selfheal_max_steps | default(10)) | list }}"
+  loop_control:
+    loop_var: step
+  when: 
+    - service_ctx.current_state not in selfheal_terminal_states
+    - not service_ctx.success
 
-# run_state.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/tasks/run_state.yml" <<'EOL'
-# run_state.yml
-- name: Debug current service and state
-  debug:
-    msg:
-      - "Service: {{ service_name }}"
-      - "Executing state: {{ current_state }}"
-
-# -------------------------------------------------
-# Execute current state
-# -------------------------------------------------
-- name: Execute current state
-  include_tasks: "../states/{{ current_state }}.yml"
-  vars:
-    target_service: "{{ service_name }}"
-  register: svc_result
-  ignore_errors: true
-
-# -------------------------------------------------
-# Persist current state
-# -------------------------------------------------
-- name: Persist current state
-  copy:
-    content: "{{ current_state }}"
-    dest: "{{ selfheal_state_dir }}/{{ service_name }}"
-
-# -------------------------------------------------
-# Record state execution
-# -------------------------------------------------
-- name: Record state execution
+# ----------------------------
+# Ensure terminal state is recorded if skipped
+# ----------------------------
+- name: Record final terminal state if not yet in history
   set_fact:
-    service_states: >-
+    service_ctx: >-
       {{
-        service_states + [
-          {
-            'state': current_state,
-            'skipped': svc_result.skipped | default(false),
-            'success': (svc_result.rc is defined and svc_result.rc == 0) or
-                       (svc_result.skipped | default(false) == false)
-          }
-        ]
+        service_ctx | combine({
+          'history': service_ctx.history + [{
+            'state': service_ctx.current_state,
+            'success': service_ctx.success,
+            'skipped': false
+          }]
+        }, recursive=True)
+      }}
+  when: 
+    - service_ctx.current_state in selfheal_terminal_states
+    - service_ctx.history | selectattr('state','equalto',service_ctx.current_state) | list | length == 0
+
+# ----------------------------
+# Finalize
+# ----------------------------
+- name: Finalize service
+  set_fact:
+    service_ctx: >-
+      {{
+        service_ctx | combine({
+          'finalized': true,
+          'finished_at': ansible_date_time.epoch | int,
+          'duration': (ansible_date_time.epoch | int) - service_ctx.started_at
+        }, recursive=True)
       }}
 
-# -------------------------------------------------
-# Mark service success if any executed state succeeded
-# -------------------------------------------------
+# ----------------------------
+# Push metrics
+# ----------------------------
+- name: Set last_state for metrics
+  set_fact:
+    last_state: "{{ service_ctx.history[-1].state }}"
+  when: service_ctx.history | length > 0
+
+- name: Push selfheal metrics
+  include_tasks: push_metrics.yml
+EOL
+
+# step.yml
+cat >"$PROJECT_SH/roles/selfheal_state_machine/tasks/step.yml" <<'EOL'
+# ----------------------------
+# Execute current state
+# ----------------------------
+- name: Execute state {{ service_ctx.current_state }}
+  include_tasks: "../states/{{ service_ctx.current_state }}.yml"
+  vars:
+    target_service: "{{ service_ctx.name }}"
+  register: svc_result
+  ignore_errors: true
+  when: not service_ctx.success
+
+# ----------------------------
+# Record history
+# ----------------------------
+- name: Record state execution
+  set_fact:
+    service_ctx: >-
+      {{
+        service_ctx | combine({
+          'history': service_ctx.history + [{
+            'state': service_ctx.current_state,
+            'success': svc_result is succeeded,
+            'skipped': svc_result.skipped | default(false)
+          }]
+        }, recursive=True)
+      }}
+
+# ----------------------------
+# Mark success if any state succeeded
+# ----------------------------
 - name: Mark service success
   set_fact:
-    service_success: true
+    service_ctx: "{{ service_ctx | combine({'success': true}) }}"
   when:
-    - not service_success
-    - service_states | selectattr('success','equalto',true) | list | length > 0
+    - not service_ctx.success
+    - service_ctx.history | selectattr('success','equalto',true) | list | length > 0
 
-# -------------------------------------------------
+# ----------------------------
 # Determine next state
-# -------------------------------------------------
+# ----------------------------
 - name: Determine next state
   set_fact:
-    current_state: "{{ target_service_item.states[current_state] | default('done') }}"
-
-- name: Debug next state
-  debug:
-    msg: "Next state for {{ service_name }} → {{ current_state }}"
-
-# -------------------------------------------------
-# Continue state machine recursively
-# -------------------------------------------------
-- name: Continue state machine
-  include_tasks: run_state.yml
-  when:
-    - current_state not in selfheal_terminal_states
-    - not service_success
-    - not service_finalized
-
-# ----------------------------
-# Debugging / Service Info
-# ----------------------------
-- name: Debug service details
-  debug:
-    msg:
-      - "inventory_hostname: {{ inventory_hostname }}"
-      - "service_name: {{ service_name }}"
-      - "service_success: {{ service_success }}"
-  when: service_finalized
-
-# ----------------------------
-# Push Metrics to Prometheus
-# ----------------------------
-# Push success metric (nur, wenn erfolgreich)
-- name: Push success metric to Prometheus Pushgateway
-  uri:
-    url: "{{ pushgateway_url }}/metrics/job/selfheal_success/host/{{ inventory_hostname }}/service/{{ service_name }}"
-    method: POST
-    body: |
-      # HELP selfheal_service_success_total Total number of successful self-healing actions for the service.
-      # TYPE selfheal_service_success_total counter
-      selfheal_service_success_total{host="{{ inventory_hostname }}",job="selfheal",service="{{ service_name }}"} 1
-    headers:
-      Content-Type: text/plain
-  when: service_success
-  ignore_errors: true
-  failed_when: false
-
-# Push failure metric (nur, wenn fehlgeschlagen)
-- name: Push failure metric to Prometheus Pushgateway
-  uri:
-    url: "{{ pushgateway_url }}/metrics/job/selfheal_failure/host/{{ inventory_hostname }}/service/{{ service_name }}"
-    method: POST
-    body: |
-      # HELP selfheal_service_failure_total Total number of failed self-healing actions for the service.
-      # TYPE selfheal_service_failure_total counter
-      selfheal_service_failure_total{host="{{ inventory_hostname }}",job="selfheal",service="{{ service_name }}"} 1
-    headers:
-      Content-Type: text/plain
-  when: not service_success
-  ignore_errors: true
-  failed_when: false
-
-# Push service result gauge (immer)
-- name: Push service result gauge to Prometheus Pushgateway
-  uri:
-    url: "{{ pushgateway_url }}/metrics/job/selfheal_result/host/{{ inventory_hostname }}/service/{{ service_name }}"
-    method: POST
-    body: |
-      # HELP selfheal_service_result Result of the self-healing action (1 for success, 0 for failure).
-      # TYPE selfheal_service_result gauge
-      selfheal_service_result{host="{{ inventory_hostname }}",job="selfheal",service="{{ service_name }}"} {{ 1 if service_success else 0 }}
-    headers:
-      Content-Type: text/plain
-  ignore_errors: true
-  failed_when: false
-
-# ----------------------------
-# Optional: Push Last Executed State
-# ----------------------------
-- name: Push last executed state to Prometheus
-  uri:
-    url: "{{ pushgateway_url }}/metrics/job/selfheal/host/{{ inventory_hostname }}/service/{{ service_name }}"
-    method: POST
-    headers:
-      Content-Type: text/plain
-    status_code: [200, 202]
-    body: |
-      # HELP selfheal_service_last_state Last executed state
-      # TYPE selfheal_service_last_state gauge
-      selfheal_service_last_state{host="{{ inventory_hostname }}",service="{{ service_name }}",state="{{ service_states[-1].state if service_states is defined and service_states|length > 0 else 'unknown' }}"} 1
-  when:
-    - service_finalized
-    - service_states is defined
-    - pushgateway_url is defined
-    - pushgateway_enabled | default(true)
-  ignore_errors: true
-  failed_when: false
-
-
-- name: Mark service as finalized
-  set_fact:
-    service_finalized: true
+    service_ctx: >-
+      {{
+        service_ctx | combine({
+          'current_state':
+            target_service_item.states[service_ctx.current_state]
+            | default('done')
+        })
+      }}
 EOL
 
 # States
-mkdir -p "$BASE_DIR/roles/selfheal_state_machine/states"
+mkdir -p "$PROJECT_SH/roles/selfheal_state_machine/states"
 
 # restart.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/restart.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/restart.yml" <<'EOL'
 # Restart state for self-healing state machine
 
 - name: Debug current service and state
@@ -419,13 +438,10 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/restart.yml" <<'EOL'
 
 # ------------------------------
 # Optional: Restart PostgreSQL if target_service matches
-- name: Restart PostgreSQL service
-  service:
-    name: postgresql
-    state: restarted
-  when: target_service in ['postgresql', 'postgres']
+- name: Restart PostgreSQL cluster
+  command: systemctl restart postgresql
   register: svc_result
-  ignore_errors: true
+  failed_when: false
 
 # ------------------------------
 # Optional: Wait for PostgreSQL connections
@@ -460,7 +476,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/restart.yml" <<'EOL'
 EOL
 
 # cleanup.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/cleanup.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/cleanup.yml" <<'EOL'
 # cleanup.yml
 
 - name: Cleanup old files in /tmp (safe)
@@ -481,7 +497,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/cleanup.yml" <<'EOL'
 EOL
 
 # reload.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/reload.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/reload.yml" <<'EOL'
 - name: Check if systemd service supports reload
   shell: |
     systemctl show {{ target_service }} --property=CanReload --value
@@ -517,7 +533,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/reload.yml" <<'EOL'
 EOL
 
 # scale_service.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/scale_service.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/scale_service.yml" <<'EOL'
 - name: Scale / restart Docker container
   docker_container:
     name: "{{ target_service }}"
@@ -541,7 +557,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/scale_service.yml" <<'EOL'
 EOL
 
 # network_heal.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/network_heal.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/network_heal.yml" <<'EOL'
 # network_heal.yml
 
 - name: Detect primary network interface
@@ -569,7 +585,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/network_heal.yml" <<'EOL'
 EOL
 
 # memory_recovery.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/memory_recovery.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/memory_recovery.yml" <<'EOL'
 # memory_recovery.yml
 
 - name: Drop Linux filesystem caches
@@ -588,7 +604,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/memory_recovery.yml" <<'EOL'
 EOL
 
 # fsck_approval.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/fsck_approval.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/fsck_approval.yml" <<'EOL'
 - name: Debug FSCK approval flag
   debug:
     msg: "FSCK approval is: {{ selfheal_approval | default(false) | bool }}"
@@ -636,7 +652,7 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/fsck_approval.yml" <<'EOL'
 EOL
 
 # done.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/done.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/done.yml" <<'EOL'
 - name: Mark service successfully healed
   debug:
     msg: "Service {{ target_service }} successfully healed"
@@ -645,17 +661,18 @@ cat >"$BASE_DIR/roles/selfheal_state_machine/states/done.yml" <<'EOL'
   include_tasks: ../tasks/push_success.yml
   vars:
     current_service: "{{ target_service }}"
+
 EOL
 
 # failed.yml
-cat >"$BASE_DIR/roles/selfheal_state_machine/states/failed.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/selfheal_state_machine/states/failed.yml" <<'EOL'
 - name: Mark service failed
   debug:
     msg: "Service {{ target_service }} failed self-healing"
 EOL
 
 # Playbook
-cat >"$BASE_DIR/playbooks/selfheal.yml" <<'EOL'
+cat >"$PROJECT_SH/playbooks/selfheal.yml" <<'EOL'
 - hosts: all
   become: true
 
@@ -669,6 +686,7 @@ cat >"$BASE_DIR/playbooks/selfheal.yml" <<'EOL'
     selfheal_approval: "{{ selfheal_approval | bool }}"
   
   roles:
+    - hardening
     - services
     - selfheal_preflight
     - selfheal_state_machine
@@ -676,18 +694,18 @@ EOL
 
 # Inventory
 CURRENT_USER=$(whoami)
-cat >"$BASE_DIR/inventory/hosts.ini" <<EOL
+cat >"$PROJECT_SH/inventory/hosts.ini" <<EOL
 [all]
 $CURRENT_USER ansible_connection=local
 EOL
 
 # Preflight tasks
-cat >"$BASE_DIR/roles/services/tasks/main.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/services/tasks/main.yml" <<'EOL'
 - import_tasks: selfheal-webhook.yml
 - import_tasks: pushgateway.yml
 EOL
 
-cat >"$BASE_DIR/roles/services/tasks/selfheal-webhook.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/services/tasks/selfheal-webhook.yml" <<'EOL'
 # -------------------------------------------------
 # selfheal-webhook service for Self-Healing
 # -------------------------------------------------
@@ -722,7 +740,7 @@ cat >"$BASE_DIR/roles/services/tasks/selfheal-webhook.yml" <<'EOL'
     state: started
 EOL
 
-cat >"$BASE_DIR/roles/services/tasks/pushgateway.yml" <<'EOL'
+cat >"$PROJECT_SH/roles/services/tasks/pushgateway.yml" <<'EOL'
 - name: Create temporary working directory
   tempfile:
     state: directory

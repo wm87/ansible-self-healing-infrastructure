@@ -9,18 +9,18 @@ SNMP_COMMUNITY="public"
 # -------------------------------
 # Variablen
 # -------------------------------
-cat >>"$PROJECT/roles/prometheus/vars/main.yml" <<EOL
+cat >>"$PROJECT_MT/roles/prometheus/vars/main.yml" <<EOL
 snmp_exporter_version: "$SNMP_EXPORTER_VERSION"
 snmp_exporter_port: $SNMP_EXPORTER_PORT
 snmp_community: "$SNMP_COMMUNITY"
 EOL
 
-cp modules/snmp/snmp.yml "$PROJECT/roles/prometheus/files/snmp.yml"
+cp modules/snmp/snmp.yml "$PROJECT_MT/roles/prometheus/files/snmp.yml"
 
 # -------------------------------
 # Tasks
 # -------------------------------
-cat >>"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 # ---------------------
 # SNMP Exporter
 # ---------------------

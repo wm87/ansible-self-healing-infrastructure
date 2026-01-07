@@ -2,7 +2,7 @@
 
 set -e
 
-cat >>"$PROJECT/roles/prometheus/templates/prometheus.yml.j2" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/templates/prometheus.yml.j2" <<'EOL'
 
   - job_name: 'mysql'
     static_configs:

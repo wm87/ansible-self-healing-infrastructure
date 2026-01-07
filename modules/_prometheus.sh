@@ -6,11 +6,11 @@ set -e
 # Prometheus Rolle
 # ---------------------
 
-cat >"$PROJECT/roles/prometheus/vars/main.yml" <<EOL
+cat >"$PROJECT_MT/roles/prometheus/vars/main.yml" <<EOL
 # Prometheus Defaults
 EOL
 
-cat >"$PROJECT/roles/prometheus/handlers/main.yml" <<'EOL'
+cat >"$PROJECT_MT/roles/prometheus/handlers/main.yml" <<'EOL'
 - name: Validate Prometheus config
   command: promtool check config /etc/prometheus/prometheus.yml
   changed_when: false
@@ -21,7 +21,7 @@ cat >"$PROJECT/roles/prometheus/handlers/main.yml" <<'EOL'
     state: reloaded
 EOL
 
-cat >"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 # ---------------------
 # Prometheus
 # ---------------------
@@ -63,7 +63,7 @@ cat >"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
 
 EOL
 
-cat >"$PROJECT/roles/prometheus/files/alert_rules.yml" <<'EOL'
+cat >"$PROJECT_MT/roles/prometheus/files/alert_rules.yml" <<'EOL'
 groups:
 EOL
 
@@ -71,7 +71,7 @@ EOL
 #source "modules/alerts/_alert_selfheal.sh"
 source "modules/alerts/_alert_host.sh"
 
-cat >>"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 - name: Deploy alert rules
   copy:
     src: files/alert_rules.yml
@@ -84,7 +84,7 @@ EOL
 # =====================
 # PROMETHEUS CONFIG
 # =====================
-cat >"$PROJECT/roles/prometheus/templates/prometheus.yml.j2" <<'EOL'
+cat >"$PROJECT_MT/roles/prometheus/templates/prometheus.yml.j2" <<'EOL'
 global:
   scrape_interval: 10s
   evaluation_interval: 10s
@@ -115,7 +115,7 @@ scrape_configs:
       - targets: ['localhost:9091']
 EOL
 
-cat >>"$PROJECT/roles/prometheus/tasks/main.yml" <<'EOL'
+cat >>"$PROJECT_MT/roles/prometheus/tasks/main.yml" <<'EOL'
 # ---------------------
 # Prometheus config deployment
 # ---------------------

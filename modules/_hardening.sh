@@ -3,7 +3,7 @@
 # ---------------------
 # Hardening Rolle
 # ---------------------
-cat >"$PROJECT/roles/hardening/tasks/main.yml" <<EOL
+cat >"$PROJECT_SH/roles/hardening/tasks/main.yml" <<EOL
 - name: Install essential packages
   apt:
     name: [ufw, fail2ban, unattended-upgrades]
@@ -33,7 +33,7 @@ cat >"$PROJECT/roles/hardening/tasks/main.yml" <<EOL
   notify: Restart fail2ban
 EOL
 
-cat >"$PROJECT/roles/hardening/handlers/main.yml" <<EOL
+cat >"$PROJECT_SH/roles/hardening/handlers/main.yml" <<EOL
 - name: Restart ssh
   service:
     name: ssh
@@ -44,14 +44,14 @@ cat >"$PROJECT/roles/hardening/handlers/main.yml" <<EOL
     state: restarted
 EOL
 
-cat >"$PROJECT/roles/hardening/templates/sshd_config.j2" <<EOL
+cat >"$PROJECT_SH/roles/hardening/templates/sshd_config.j2" <<EOL
 PermitRootLogin no
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 UsePAM yes
 EOL
 
-cat >"$PROJECT/roles/hardening/templates/jail.local" <<EOL
+cat >"$PROJECT_SH/roles/hardening/templates/jail.local" <<EOL
 [DEFAULT]
 bantime  = 3600
 findtime  = 600

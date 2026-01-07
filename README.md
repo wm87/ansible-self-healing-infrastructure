@@ -95,7 +95,7 @@ http://localhost:3000/login
 
 ## 🛠 work in progress
 
-* Board für Erfolge/Fehlschläge der automatisierten Reperaturen
+* ~~Board für Erfolge/Fehlschläge der automatisierten Reperaturen~~
 * ~~Services werden absichtlich gestoppt~~
 * ~~Prometheus erkennt den Ausfall~~
 * ~~Alertmanager sendet automatisch E-Mail's für Alert und Resolve~~
@@ -137,6 +137,9 @@ journalctl -u selfheal-webhook -f
 
 # arbeitet alloy ?
 journalctl -u alloy -f
+
+# arbeitet pushgateway?
+journalctl -u pushgateway.service -f
 ```
 
 ---
@@ -209,6 +212,14 @@ Alle Dashboards werden automatisch mit den entsprechenden Datenquellen verbunden
 ## Meine Board's
 
 [Alloy Loki Error/Warning Logs](https://github.com/wm87/grafana_alloy_loki_logs)
+
+### Self-Healing-Dashboard
+
+| Beschriftung                      | Bild                                                                         |
+|-----------------------------------|------------------------------------------------------------------------------|
+| Services UP / Repair Success      | ![Screenshot srv_up](assets/grafana_dashboards/self_healing_board_01.png)    |
+| Services DOWN                     | ![Screenshot srv_down](assets/grafana_dashboards/self_healing_board_02.png)  |
+| Repair Failures                   | ![Screenshot srv_down](assets/grafana_dashboards/self_healing_board_03.png)  |
 
 ---
 

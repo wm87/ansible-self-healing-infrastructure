@@ -5,8 +5,8 @@ set -e
 # -------------------------------
 # Basisvariablen
 # -------------------------------
-PROJECT="${PROJECT:-/tmp/self-healing}"
-ROLE_DIR="$PROJECT/roles/telegraf"
+PROJECT_MT="${PROJECT_MT:-/tmp/self-healing}"
+ROLE_DIR="$PROJECT_MT/roles/telegraf"
 TASKS_DIR="$ROLE_DIR/tasks"
 VARS_DIR="$ROLE_DIR/vars"
 HANDLERS_DIR="$ROLE_DIR/handlers"
